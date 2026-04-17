@@ -4,16 +4,23 @@ This example uses the OrbitControls addon by importing it separately from the ma
 */
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+
 
 let scene, camera, renderer;
-
-let myObjects = [];
-let inactiveMat, activeMat;
 let mouse;
 
 function init() {
   // create a scene in which all other objects will exist
   scene = new THREE.Scene();
+
+  // set environment
+  new HDRLoader().load('cedar_bridge_sunset_1_1k.hdr', function (envMap) {
+    console.log('hdr environment map loaded!');
+    envMap.mapping = THREE.EquirectangularReflectionMapping;
+    scene.environment = envMap;
+    // scene.background = envMap;
+  })
 
   // create a camera and position it in space
   let aspect = window.innerWidth / window.innerHeight;
@@ -27,32 +34,20 @@ function init() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  let gridHelper = new THREE.GridHelper(25, 25);
+  let theground = new THREE.Mesh(new THREE.BoxGeometry(100, 0.001, 100), new THREE.MeshStandardMaterial({ color: "blue" }))
+  theground.position.y = -0.1;
+  scene.add(theground);
+
+  let gridHelper = new THREE.GridHelper(100, 100);
   scene.add(gridHelper);
+
 
   // add orbit controls
   let controls = new OrbitControls(camera, renderer.domElement);
 
-  // create several objects which we can activate with raycasting
-  // use a shared geometry for each object
-  let geo = new THREE.TorusGeometry(1, 0.5, 12, 12);
-  activeMat = new THREE.MeshBasicMaterial({ color: "red" });
-  inactiveMat = new THREE.MeshBasicMaterial();
-
-  for (let i = 0; i < 10; i++) {
-    // and use a different material (because we will alter it when an object is raycast)
-
-    let mesh = new THREE.Mesh(geo, inactiveMat);
-
-    mesh.position.set(
-      (Math.random() - 0.5) * 20,
-      0,
-      (Math.random() - 0.5) * 20
-    );
-    mesh.rotation.y = Math.random() * 2;
-    scene.add(mesh);
-    myObjects.push(mesh);
-  }
+  // create a hover state object (which we'll move whenever the mouse moves)
+  let hoverMesh = new THREE.Mesh(new THREE.SphereGeometry(0.2), new THREE.MeshStandardMaterial({ color: "yellow" }))
+  scene.add(hoverMesh);
 
   // add a raycast on click
   mouse = new THREE.Vector2(0, 0);
@@ -62,23 +57,42 @@ function init() {
       // three.js expects 'normalized device coordinates' (i.e. between -1 and 1 on both axes)
       mouse.x = (ev.clientX / window.innerWidth) * 2 - 1;
       mouse.y = -(ev.clientY / window.innerHeight) * 2 + 1;
+
+      // use our raycaster to move the hoverMesh to the point on the ground where the mouse is pointing
+      raycaster.setFromCamera(mouse, camera);
+
+      // run the intersections test against the ground plane
+      let intersections = raycaster.intersectObject(theground);
+
+      // if there is an intersection, place the hoverMesh there
+      if (intersections[0]) {
+        let pointInSpace = intersections[0].point;
+        hoverMesh.position.set(pointInSpace.x, pointInSpace.y, pointInSpace.z);
+      }
     },
     false
   );
 
   let raycaster = new THREE.Raycaster();
-  document.addEventListener("click", (ev) => {
+
+  // this code runs whenever we click down on the screen
+  document.addEventListener("pointerdown", (ev) => {
+
+    // tell our raycaster to project a ray from the camera through the mouse 
+    // position that we saved above (as 'normalized device coordinates')
     raycaster.setFromCamera(mouse, camera);
 
-    // calculate objects intersecting the picking ray
-    const intersects = raycaster.intersectObjects(myObjects);
+    // run the intersections test against the ground plane
+    let intersections = raycaster.intersectObject(theground);
 
-    // reset all materials
-    for (let i = 0; i < myObjects.length; i++) {
-      myObjects[i].material = inactiveMat;
-    }
-    for (let i = 0; i < intersects.length; i++) {
-      intersects[i].object.material = activeMat;
+    // if there is an intersection, place a cone there and point it in the direction of the normal
+    if (intersections[0]) {
+      let pointInSpace = intersections[0].point;
+
+      let mesh = new THREE.Mesh(new THREE.ConeGeometry(1, 2), new THREE.MeshStandardMaterial({ color: "red" }))
+      scene.add(mesh);
+      mesh.position.set(pointInSpace.x, pointInSpace.y, pointInSpace.z);
+
     }
   });
 
